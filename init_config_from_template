@@ -1,0 +1,14 @@
+#!/bin/bash
+
+basedir=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd ) 
+
+config_templates="$basedir/config.template/*"
+mkdir -p $basedir/config/
+
+for template in $config_templates
+do
+  filename=$(basename $template) 
+  conf="$basedir/config/$filename"
+  cat $template > $conf    
+  echo "$template > $conf"
+done

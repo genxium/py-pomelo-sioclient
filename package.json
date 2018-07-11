@@ -1,0 +1,17 @@
+{
+  "name": "py-pomelo-sioclient",
+  "version": "0.0.1",
+  "description": "",
+  "main": "./locust_launcher.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "genxium@hotmail.com",
+  "license": "MIT",
+  "dependencies": {
+    "argparse": "^1.0.10",
+    "bluebird": "^3.5.1",
+    "bunyan": "^1.8.12",
+    "bunyan-prettystream": "^0.1.3"
+  }
+}

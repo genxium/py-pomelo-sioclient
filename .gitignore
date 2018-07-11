@@ -1,3 +1,5 @@
+config/*
+
 *.csv
 *.sqlite-journal
 ~*.sql
