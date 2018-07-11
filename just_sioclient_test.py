@@ -1,7 +1,7 @@
 import sys
 from requests.exceptions import ConnectionError
 from socketIO_client import SocketIO
-from socketIO_client import SocketIO, BaseNamespace
+from socketIO_client.transports import WebsocketTransport 
 
 socket = None
 
@@ -34,6 +34,7 @@ if __name__ == '__main__' :
         socket = SocketIO(host, port, 
                 # What's called "path" in socketio-server-api v1.x.x(including v1.7.2) options is here called "resource", e.g. by default "/socket.io".
                 resource="sio", 
+                transports=[WebsocketTransport],
                 params={
                     'playerId': playerId, 
                     'roomid': roomid
