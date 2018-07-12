@@ -69,7 +69,9 @@ const dirStat = fs.statSync(args.csvDirPath);
 if (!dirStat.isDirectory()) {
   logger.error("Please create the directory %s first.", args.csvDirPath);
 }
-const csvPathPattern = args.csvDirPath + path.basename(args.locustFile, '.py') + "_" + args.totalUsers + "_" + dateDesiredPattern;
+
+const csvDirPathWithSlash = (/\/$/.test(args.csvPathPattern) ? args.csvDirPath : (args.csvPath + "/"));
+const csvPathPattern = csvDirPathWithSlash + path.basename(args.locustFile, '.py') + "_" + args.totalUsers + "_" + dateDesiredPattern;
 const hatchRate = (null == args.hatchRate ? args.totalUsers : args.hatchRate);
 
 const cmd = util.format('locust');

@@ -1,7 +1,6 @@
 import sys
 from requests.exceptions import ConnectionError
 from socketIO_client import SocketIO
-from socketIO_client.transports import WebsocketTransport 
 
 socket = None
 
@@ -33,8 +32,8 @@ if __name__ == '__main__' :
     try:
         socket = SocketIO(host, port, 
                 # What's called "path" in socketio-server-api v1.x.x(including v1.7.2) options is here called "resource", e.g. by default "/socket.io".
-                resource="sio", 
-                transports=[WebsocketTransport],
+                resource='sio', 
+                transports=['websocket'],
                 params={
                     'playerId': playerId, 
                     'roomid': roomid
@@ -46,6 +45,6 @@ if __name__ == '__main__' :
         socket.on('unicastedFrame', on_unicastedFrame)
         socket.wait()
     except ConnectionError:
-        print('The sio-server is down. Try again later.')
+        print "The sio-server is down. Try again later."
     except KeyboardInterrupt:
         sys.exit(0)
