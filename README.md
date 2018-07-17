@@ -28,7 +28,7 @@ Or if you're not using pipenv and have installed the dependencies "globally"
 user@proj-root> python just_sioclient_test.py <host> <port> <playerId> <roomid> 
 ```
 
-# Running with Locust (NOT working yet)
+# Running with Locust 
 Without custom NodeJs wrapper.
 ```
 user@proj-root> locust -f locust_files/just_sioclient_test.py --no-web -c1 -r1 
