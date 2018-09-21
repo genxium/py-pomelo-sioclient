@@ -17,10 +17,17 @@ user@proj-root> pipenv install
 However to make use of the Locust task runner, you're stil suggested to install all dependencies "globally" via pip.
 
 ```
-user@proj-root> pip install locust 
-user@proj-root> pip install socketIO_client
-user@proj-root> pip install requests 
+user@~> pip install "locustio>=0.9" 
+user@~> pip install socketIO_client
+user@~> pip install requests 
 ```
+
+Make sure that you've installed `locustio v0.9(+)` by 
+```
+user@~> locust --version 
+```
+in shell.
+
 
 # Running standalone with necessary params
 ```

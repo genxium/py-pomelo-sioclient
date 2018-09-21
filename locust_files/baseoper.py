@@ -19,7 +19,7 @@ def init():
   conn.close()
 
 def get_single_random_player():
-  idx = random.randint(1, _tot_test_player_count)
+  idx = random.randint(1, _tot_test_player_count - 1)
   return _test_player_list[idx]
 
 def get_sio_server_host_port():
