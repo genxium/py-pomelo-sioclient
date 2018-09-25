@@ -23,19 +23,23 @@ baseoper.init()
 class SimplestConnectionEstablishmentTaskSet(TaskSet):
   def __init__(self, *args, **kwargs):
     super(SimplestConnectionEstablishmentTaskSet, self).__init__(*args, **kwargs)
-    print("SimplestConnectionEstablishmentTaskSet instance for player.id == %s to roomid == %s, __init__ has just started..." % (self.locust.playerId, self.locust.roomid))
 
   def setup(self):
-    print("SimplestConnectionEstablishmentTaskSet instance for player.id == %s to roomid == %s, setup has just started..." % (self.locust.playerId, self.locust.roomid))
+    print("SimplestConnectionEstablishmentTaskSet.setup completed. I'm called only once for all locusts (NOT `once per locust` or `once per task_set` or `once per locust*task_set`) during the lifetime of the current OS process.")
 
   def on_start(self):
-    print("SimplestConnectionEstablishmentTaskSet instance has been started for player.id == %s to roomid == %s." % (self.locust.playerId, self.locust.roomid))
+    print("SimplestConnectionEstablishmentTaskSet.on_start for player.id == %s to roomid == %s." % (self.locust.playerId, self.locust.roomid))
+    '''
+    The following `self.client.wait()` is responsible for holding `self.client` aware of the callback events, e.g. "on_connect", "on_disconnect" etc INDEFINITELY except for interrupted by "locust.exception.StopLocust" or "gevent.GreenletExit".
+    '''
+    self.client.wait()   
+    print("SimplestConnectionEstablishmentTaskSet instance for player.id == %s to roomid == %s sioclient is initialized and awaiting callback events." % (self.locust.playerId, self.locust.roomid)) 
 
   def on_stop(self):
-    print("SimplestConnectionEstablishmentTaskSet instance is stopped for player.id == %s to roomid == %s." % (self.locust.playerId, self.locust.roomid))
+    print("SimplestConnectionEstablishmentTaskSet.on_stop for player.id == %s to roomid == %s." % (self.locust.playerId, self.locust.roomid))
 
   def teardown(self):
-    print("SimplestConnectionEstablishmentTaskSet instance has been torn down for player.id == %s to roomid == %s." % (self.locust.playerId, self.locust.roomid)) 
+    print("SimplestConnectionEstablishmentTaskSet all instances have been torn down. I'm called only once for all locusts (NOT `once per locust` or `once per task_set` or `once per locust*task_set`) during the lifetime of the current OS process.") 
 
 
   @task(1)
@@ -57,29 +61,7 @@ class SimplestConnectionEstablishmentPlayer(Locust):
   max_wait = 1000
   task_set = SimplestConnectionEstablishmentTaskSet
 
-  def on_connect(self):
-    print('SimplestConnectionEstablishmentPlayer instance for player.id == %s to roomid == %s, connected to sio-server.' % (self.playerId, self.roomid))
-
-  def on_disconnect(self):
-    print('SimplestConnectionEstablishmentPlayer instance for player.id == %s to roomid == %s, disconnected from sio-server.' % (self.playerId, self.roomid))
-
-  def on_unicastedFrame(self, *args):
-    print('SimplestConnectionEstablishmentPlayer instance for player.id == %s to roomid == %s, on_message %s.' % (self.playerId, self.roomid, args))
-
-  def __init__(self, *args, **kwargs):
-    fp = baseoper.get_single_random_player()
-    self.playerId = fp[0]
-    self.roomid = fp[1]
-
-    sio_server = baseoper.get_sio_server_host_port()
-    self.host = sio_server[0]
-    self.port = sio_server[1]
-    print("SimplestConnectionEstablishmentPlayer instance is just initialized, about to connect to server %s:%s for player.id == %s to roomid == %s." % (self.host, self.port, self.playerId, self.roomid))
-    self.client = None
-    super(SimplestConnectionEstablishmentPlayer, self).__init__(*args, **kwargs) # Note that `self.setup` will run hereafter.
-
-  def setup(self):
-    print("SimplestConnectionEstablishmentPlayer instance for player.id == %s to roomid == %s, setup has just started..." % (self.playerId, self.roomid))
+  def _init_sio_client(self):
     try:
       self.client = SocketIO(
                               self.host, self.port, 
@@ -103,14 +85,44 @@ class SimplestConnectionEstablishmentPlayer(Locust):
       '''
       self.client.on('connect', self.on_connect)
       self.client.on('disconnect', self.on_disconnect)
-      self.client.on('unicastedFrame', self.on_unicastedFrame)
-      self.client.wait(10) # Don't use just `self.client.wait()` or the current `locust/gevent.Greenlet` will block here forever.  
-      print("SimplestConnectionEstablishmentPlayer instance for player.id == %s to roomid == %s sioclient is initialized and awaiting callback events." % (self.playerId, self.roomid)) 
+      self.client.on('message', self.on_message)
     except ConnectionError:
       print("SimplestConnectionEstablishmentPlayer instance for player.id == %s to roomid == %s. The sio-server is down, try again later." % (self.playerId, self.roomid))
     except KeyboardInterrupt:
       raise GreenletExit()
 
+  def on_connect(self):
+    print('SimplestConnectionEstablishmentPlayer instance for player.id == %s to roomid == %s, connected to sio-server.' % (self.playerId, self.roomid))
+
+  def on_disconnect(self):
+    print('SimplestConnectionEstablishmentPlayer instance for player.id == %s to roomid == %s, disconnected from sio-server.' % (self.playerId, self.roomid))
+    raise StopLocust()
+
+  def on_message(self, *args):
+    print('SimplestConnectionEstablishmentPlayer instance for player.id == %s to roomid == %s, on_message %s.' % (self.playerId, self.roomid, args))
+
+  def __init__(self, *args, **kwargs):
+    '''
+    Note that `self.setup` will run within the immediately following invocation if "False == Locust._setup_has_run", see https://github.com/locustio/locust/blob/master/locust/core.py for details (Locust v0.9).
+    '''
+    super(SimplestConnectionEstablishmentPlayer, self).__init__(*args, **kwargs)
+    fp = baseoper.get_single_random_player()
+    self.playerId = fp[0]
+    self.roomid = fp[1]
+
+    sio_server = baseoper.get_sio_server_host_port()
+    self.host = sio_server[0]
+    self.port = int(sio_server[1])
+    '''
+    The call to `self._init_sio_client()` SHOULDN'T be put into `"self.setup" or "Locust.setup"` which runs only once for "all locusts spawned by the current OS process", due to "Locust._setup_has_run" being a class-static-variable (unless otherwise hacked via `self._setup_has_run` which is unnecessary), see https://github.com/locustio/locust/blob/master/locust/core.py for details (Locust v0.9).
+
+    Same argument holds for "Locust.teardown", "TaskSet.setup" and "TaskSet.teardown".
+    '''
+    self._init_sio_client()
+
+  def setup(self):
+    print("SimplestConnectionEstablishmentPlayer.setup completed. I'm called only once for all locusts (NOT `once per locust`) during the lifetime of the current OS process.")
+
   def teardown(self):
-    print("SimplestConnectionEstablishmentPlayer instance for player.id == %s to roomid == %s has been torn down." % (self.playerId, self.roomid)) 
+    print("SimplestConnectionEstablishmentPlayer all instances have been torn down. I'm called only once for all locusts (NOT `once per locust`) during the lifetime of the current OS process.") 
 
