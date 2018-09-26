@@ -7,7 +7,11 @@ from socketIO_client import SocketIO
 from locust import Locust, TaskSet, task, events
 from locust.exception import StopLocust
 from gevent import GreenletExit
+from gevent import monkey
+import gevent
 import baseoper 
+
+monkey.patch_all() # Make Gevent compatible with some blocking system calls, see http://www.gevent.org/api/gevent.monkey.html for details.
 
 '''
 Major references
@@ -28,15 +32,24 @@ class SimplestConnectionEstablishmentTaskSet(TaskSet):
     print("SimplestConnectionEstablishmentTaskSet.setup completed. I'm called only once for all locusts (NOT `once per locust` or `once per task_set` or `once per locust*task_set`) during the lifetime of the current OS process.")
 
   def on_start(self):
-    print("SimplestConnectionEstablishmentTaskSet.on_start for player.id == %s to roomid == %s." % (self.locust.playerId, self.locust.roomid))
+    print("SimplestConnectionEstablishmentTaskSet.on_start for player.id == %s to room_id == %s." % (self.locust.player_id, self.locust.room_id))
     '''
-    The following `self.client.wait()` is responsible for holding `self.client` aware of the callback events, e.g. "on_connect", "on_disconnect" etc INDEFINITELY except for interrupted by "locust.exception.StopLocust" or "gevent.GreenletExit".
+    The following `self.client.wait()` is responsible for holding `self.client` aware of the callback events, e.g. "on_connect", "on_disconnect" etc INDEFINITELY except for interrupted by "locust.exception.StopLocust" or "gevent.GreenletExit". It's blocking if not wrapped by gevent, see https://github.com/invisibleroads/socketIO-client/blob/master/socketIO_client/__init__.py and https://github.com/invisibleroads/socketIO-client/blob/master/socketIO_client/logs.py for details about its use of "looping generator & yield" (socketIO_client v0.7.2).
     '''
-    self.client.wait()   
-    print("SimplestConnectionEstablishmentTaskSet instance for player.id == %s to roomid == %s sioclient is initialized and awaiting callback events." % (self.locust.playerId, self.locust.roomid)) 
+    def on_sio_client_wait_exception(glt):
+      '''
+      This is still within the "spawned greenlet from main locust". 
+      
+      See http://www.gevent.org/api/gevent.greenlet.html#gevent.Greenlet.link_exception and http://www.gevent.org/api/gevent.greenlet.html#gevent.greenlet.greenlet for details.
+      '''
+      print("Exception of the non_blocking_waiting of the sioclient caught for player.id == %s to room_id == %s." % (self.locust.player_id, self.locust.room_id))
+      raise StopLocust
+
+    non_blocking_waiting = gevent.spawn(self.client.wait).link_exception(on_sio_client_wait_exception) 
+    print("SimplestConnectionEstablishmentTaskSet instance for player.id == %s to room_id == %s sioclient is initialized and awaiting callback events." % (self.locust.player_id, self.locust.room_id)) 
 
   def on_stop(self):
-    print("SimplestConnectionEstablishmentTaskSet.on_stop for player.id == %s to roomid == %s." % (self.locust.playerId, self.locust.roomid))
+    print("SimplestConnectionEstablishmentTaskSet.on_stop for player.id == %s to room_id == %s." % (self.locust.player_id, self.locust.room_id))
 
   def teardown(self):
     print("SimplestConnectionEstablishmentTaskSet all instances have been torn down. I'm called only once for all locusts (NOT `once per locust` or `once per task_set` or `once per locust*task_set`) during the lifetime of the current OS process.") 
@@ -47,14 +60,11 @@ class SimplestConnectionEstablishmentTaskSet(TaskSet):
     try:
       self.client.emit('message', 'hello')
     except ConnectionError:
-      print("Connection error for player.id == %s to roomid == %s. Stopping the SimplestConnectionEstablishmentTaskSet instance..." % (self.locust.playerId, self.locust.roomid))
-      raise StopLocust()
-    except KeyboardInterrupt:
-      print("Keyboard interrupted for player.id == %s to roomid == %s. Stopping the SimplestConnectionEstablishmentTaskSet instance..." % (self.locust.playerId, self.locust.roomid))
-      raise StopLocust()
+      print("[ACTIVELY DISCONNECTING] SimplestConnectionEstablishmentTaskSet connection error for player.id == %s to room_id == %s." % (self.locust.player_id, self.locust.room_id))
+      self.client.disconnect() # Will trigger `self.locust.on_disconnect` to proceed.
     except Exception:
-      print("Unknown error for player.id == %s to roomid == %s. Stopping the SimplestConnectionEstablishmentTaskSet instance..." % (self.locust.playerId, self.locust.roomid))
-      raise StopLocust()
+      print("[ACTIVELY DISCONNECTING] SimplestConnectionEstablishmentTaskSet unknown error for player.id == %s to room_id == %s." % (self.locust.player_id, self.locust.room_id))
+      self.client.disconnect() # Will trigger `self.locust.on_disconnect` to proceed.
 
 class SimplestConnectionEstablishmentPlayer(Locust):
   min_wait = 1000
@@ -68,8 +78,8 @@ class SimplestConnectionEstablishmentPlayer(Locust):
                               resource='sio', 
                               transports=['websocket'],
                               params={
-                                  'userid': self.playerId, 
-                                  'roomid': self.roomid
+                                  'userid': self.player_id, 
+                                  'roomid': self.room_id
                               },
                               wait_for_connection=False # Disabling auto-reconnection.
                     )
@@ -87,19 +97,41 @@ class SimplestConnectionEstablishmentPlayer(Locust):
       self.client.on('disconnect', self.on_disconnect)
       self.client.on('message', self.on_message)
     except ConnectionError:
-      print("SimplestConnectionEstablishmentPlayer instance for player.id == %s to roomid == %s. The sio-server is down, try again later." % (self.playerId, self.roomid))
+      print("SimplestConnectionEstablishmentPlayer instance for player.id == %s to room_id == %s. The sio-server is down, try again later." % (self.player_id, self.room_id))
+      raise GreenletExit()
     except KeyboardInterrupt:
       raise GreenletExit()
 
   def on_connect(self):
-    print('SimplestConnectionEstablishmentPlayer instance for player.id == %s to roomid == %s, connected to sio-server.' % (self.playerId, self.roomid))
+    print('SimplestConnectionEstablishmentPlayer instance for player.id == %s to room_id == %s, connected to sio-server.' % (self.player_id, self.room_id))
 
   def on_disconnect(self):
-    print('SimplestConnectionEstablishmentPlayer instance for player.id == %s to roomid == %s, disconnected from sio-server.' % (self.playerId, self.roomid))
-    raise StopLocust()
+    '''
+    A subtlety to be concerned here. 
+    '''
+    if (True == self.client._should_stop_waiting()):
+      # If the execution reaches here by actively calling `self.client.disconnect()`, then one finds "True == self.client._should_stop_waiting() == self.client._wants_to_close".
+      print('[ACTIVELY DISCONNECTED] SimplestConnectionEstablishmentPlayer for player.id == %s to room_id == %s.' % (self.player_id, self.room_id))
+      raise StopLocust() # This is usually within the "main locust".
+    else:
+      # If the execution reaches here passively within `self.client.wait()`, then one finds "False == self.client._should_stop_waiting() == self.client._wants_to_close", and should help terminate the loop in the spawned `self.client.wait()`. See https://github.com/invisibleroads/socketIO-client/blob/master/socketIO_client/__init__.py for details (socketIO_client v0.7.2).
+      print('[PASSIVELY DISCONNECTED] SimplestConnectionEstablishmentPlayer for player.id == %s to room_id == %s.' % (self.player_id, self.room_id))
+      self.client._close()
+      '''
+      DON'T raise `GreenletExit` here! 
+
+      Quoted from http://www.gevent.org/api/gevent.greenlet.html#gevent.GreenletExit for "gevent v1.3.7.dev0".  
+
+      "
+      A special exception that kills the greenlet silently.
+
+      When a greenlet raises GreenletExit or a subclass, the traceback is not printed and the greenlet is considered successful. The exception instance is available under value property as if it was returned by the greenlet, not raised.
+      "
+      '''
+      raise StopLocust() # This is usually within the "spawned greenlet from main locust" and will be caught by `link_exception` for proceeding.
 
   def on_message(self, *args):
-    print('SimplestConnectionEstablishmentPlayer instance for player.id == %s to roomid == %s, on_message %s.' % (self.playerId, self.roomid, args))
+    print('SimplestConnectionEstablishmentPlayer instance for player.id == %s to room_id == %s, on_message %s.' % (self.player_id, self.room_id, args))
 
   def __init__(self, *args, **kwargs):
     '''
@@ -107,8 +139,8 @@ class SimplestConnectionEstablishmentPlayer(Locust):
     '''
     super(SimplestConnectionEstablishmentPlayer, self).__init__(*args, **kwargs)
     fp = baseoper.get_single_random_player()
-    self.playerId = fp[0]
-    self.roomid = fp[1]
+    self.player_id = fp[0]
+    self.room_id = fp[1]
 
     sio_server = baseoper.get_sio_server_host_port()
     self.host = sio_server[0]
