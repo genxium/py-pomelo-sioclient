@@ -8,6 +8,13 @@ from locust import Locust, TaskSet, task, events
 from locust.exception import StopLocust
 from gevent import GreenletExit
 from gevent import monkey
+from gevent import config as GEVENT_CONFIG 
+
+'''
+To ensure that "spawning_greenlet of `gevent.Greenlet` instance" can be used, see http://www.gevent.org/configuration.html#gevent._config.Config.track_greenlet_tree and https://github.com/gevent/gevent/blob/master/src/gevent/greenlet.py for details.
+'''
+GEVENT_CONFIG.track_greenlet_tree = True
+
 import gevent
 import baseoper 
 
@@ -34,18 +41,11 @@ class SimplestConnectionEstablishmentTaskSet(TaskSet):
   def on_start(self):
     print("SimplestConnectionEstablishmentTaskSet.on_start for player.id == %s to room_id == %s." % (self.locust.player_id, self.locust.room_id))
     '''
-    The following `self.client.wait()` is responsible for holding `self.client` aware of the callback events, e.g. "on_connect", "on_disconnect" etc INDEFINITELY except for interrupted by "locust.exception.StopLocust" or "gevent.GreenletExit". It's blocking if not wrapped by gevent, see https://github.com/invisibleroads/socketIO-client/blob/master/socketIO_client/__init__.py and https://github.com/invisibleroads/socketIO-client/blob/master/socketIO_client/logs.py for details about its use of "looping generator & yield" (socketIO_client v0.7.2).
+    The following `self.client.wait()` is responsible for holding `self.client` aware of the callback events, e.g. "on_connect", "on_disconnect" etc INDEFINITELY unless certain exceptions are thrown. 
+    
+    It's blocking if not wrapped by `gevent.Greenlet`, see https://github.com/invisibleroads/socketIO-client/blob/master/socketIO_client/__init__.py and https://github.com/invisibleroads/socketIO-client/blob/master/socketIO_client/logs.py for details about its use of "looping generator & yield" (socketIO_client v0.7.2).
     '''
-    def on_sio_client_wait_exception(glt):
-      '''
-      This is still within the "spawned greenlet from main locust". 
-      
-      See http://www.gevent.org/api/gevent.greenlet.html#gevent.Greenlet.link_exception and http://www.gevent.org/api/gevent.greenlet.html#gevent.greenlet.greenlet for details.
-      '''
-      print("Exception of the non_blocking_waiting of the sioclient caught for player.id == %s to room_id == %s." % (self.locust.player_id, self.locust.room_id))
-      raise StopLocust
-
-    non_blocking_waiting = gevent.spawn(self.client.wait).link_exception(on_sio_client_wait_exception) 
+    non_blocking_waiting = gevent.spawn(self.client.wait) 
     print("SimplestConnectionEstablishmentTaskSet instance for player.id == %s to room_id == %s sioclient is initialized and awaiting callback events." % (self.locust.player_id, self.locust.room_id)) 
 
   def on_stop(self):
@@ -112,13 +112,14 @@ class SimplestConnectionEstablishmentPlayer(Locust):
     if (True == self.client._should_stop_waiting()):
       # If the execution reaches here by actively calling `self.client.disconnect()`, then one finds "True == self.client._should_stop_waiting() == self.client._wants_to_close".
       print('[ACTIVELY DISCONNECTED] SimplestConnectionEstablishmentPlayer for player.id == %s to room_id == %s.' % (self.player_id, self.room_id))
-      raise StopLocust() # This is usually within the "main locust".
+      raise StopLocust() # This is within the "main locust".
     else:
       # If the execution reaches here passively within `self.client.wait()`, then one finds "False == self.client._should_stop_waiting() == self.client._wants_to_close", and should help terminate the loop in the spawned `self.client.wait()`. See https://github.com/invisibleroads/socketIO-client/blob/master/socketIO_client/__init__.py for details (socketIO_client v0.7.2).
       print('[PASSIVELY DISCONNECTED] SimplestConnectionEstablishmentPlayer for player.id == %s to room_id == %s.' % (self.player_id, self.room_id))
       self.client._close()
+      gevent.getcurrent().spawning_greenlet().kill()
       '''
-      DON'T raise `GreenletExit` here! 
+      Killing the current `gevent.Greenlet` instance silently. 
 
       Quoted from http://www.gevent.org/api/gevent.greenlet.html#gevent.GreenletExit for "gevent v1.3.7.dev0".  
 
@@ -128,7 +129,7 @@ class SimplestConnectionEstablishmentPlayer(Locust):
       When a greenlet raises GreenletExit or a subclass, the traceback is not printed and the greenlet is considered successful. The exception instance is available under value property as if it was returned by the greenlet, not raised.
       "
       '''
-      raise StopLocust() # This is usually within the "spawned greenlet from main locust" and will be caught by `link_exception` for proceeding.
+      raise GreenletExit() # This is within the "spawned greenlet from main locust".
 
   def on_message(self, *args):
     print('SimplestConnectionEstablishmentPlayer instance for player.id == %s to room_id == %s, on_message %s.' % (self.player_id, self.room_id, args))
